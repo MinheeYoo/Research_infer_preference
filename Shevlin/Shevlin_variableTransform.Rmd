@@ -1,0 +1,198 @@
+---
+title: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list=ls()) 
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(posterior)
+
+theme_set(theme_classic() + theme(text = element_text(size = 13)))
+```
+
+
+```{r}
+source("plot_hddm_samples.R")
+```
+
+
+```{r}
+nChain = 4
+nSample = 6000
+samples_sh = read.csv("Shevlin_samples.csv")
+samples_sh$chain = rep(1:nChain, each = nSample)
+samples_sh$sampleNum = samples_sh$X+1
+```
+
+```{r}
+adjust_sample = function(data) {
+  tmp = data %>% 
+  select(!c(X, a, t)) %>% 
+  pivot_longer(!c(chain, sampleNum), 
+               names_to = "paramName", 
+               names_prefix = "v_x",
+               values_to = "sampleValue") %>%
+  group_by(sampleNum) %>% 
+  mutate(minOption = paramName[which.min(sampleValue)],
+         minValue = min(sampleValue),
+         adjValue = sampleValue - minValue) %>%
+  pivot_wider(!c(sampleValue, minValue), 
+              names_from = paramName, 
+              names_prefix = "v",
+              values_from  = adjValue) %>%
+  ungroup() 
+  return(tmp)
+}
+```
+
+```{r}
+samples_sh_low_adj = adjust_sample(samples_sh %>% 
+                                     select(X,a,t, sprintf("v_x%d", 1:9), chain, sampleNum))
+unique(samples_sh_low_adj$minOption)
+```
+
+```{r}
+samples_sh_med_adj = adjust_sample(samples_sh %>% 
+                                     select(X,a,t, sprintf("v_x%d", 10:18), chain, sampleNum))
+unique(samples_sh_med_adj$minOption)
+```
+
+```{r}
+samples_sh_high_adj = adjust_sample(samples_sh %>% 
+                                     select(X,a,t, sprintf("v_x%d", 19:27), chain, sampleNum))
+unique(samples_sh_high_adj$minOption)
+```
+
+```{r}
+samples_sh_adj = samples_sh_low_adj %>% select(!minOption) %>% 
+  right_join(samples_sh_med_adj %>% select(!minOption), by = c("chain", "sampleNum")) %>% 
+  right_join(samples_sh_high_adj %>% select(!minOption), by = c("chain", "sampleNum"))
+```
+
+
+```{r}
+# check R hat of adjust value 
+chain_summary_sh = summarise_draws(
+  samples_sh_adj %>%  
+    group_by(chain) %>% 
+    mutate(`.iteration` = 1:n()) %>%
+    rename(`.draw` = sampleNum, 
+           `.chain` = chain))
+any(chain_summary_sh$rhat[!is.na(chain_summary_sh$rhat)] > 1.01)
+```
+
+```{r}
+tmp = samples_sh_adj %>% 
+  select(one_of(c(sprintf("v%d", 1:9), "chain", "sampleNum"))) %>% 
+  pivot_longer(!c(chain, sampleNum), # into long format
+               names_to = "paramName", 
+               values_to = "sampleValue") %>%
+  mutate(paramName = factor(paramName, levels = sprintf("v%d", 1:9)))
+ggplot(tmp, aes(color = factor(chain))) +
+  geom_density(aes(sampleValue), size = 0.5) +
+  labs(x = "density", y = "sample value", color = "chain",
+      title = "adjust posterior sample value (Shevlin - Low)") +
+  facet_wrap(~factor(paramName), scales = "free")
+```
+
+```{r}
+tmp = samples_sh_adj %>% 
+  select(one_of(c(sprintf("v%d", 10:18), "chain", "sampleNum"))) %>% 
+  pivot_longer(!c(chain, sampleNum), # into long format
+               names_to = "paramName", 
+               values_to = "sampleValue") %>%
+  mutate(paramName = factor(paramName, levels = sprintf("v%d", 10:18)))
+ggplot(tmp, aes(color = factor(chain))) +
+  geom_density(aes(sampleValue), size = 0.5) +
+  labs(x = "density", y = "sample value", color = "chain",
+      title = "adjust posterior sample value (Shevlin - Medium)") +
+  facet_wrap(~factor(paramName), scales = "free")
+```
+
+```{r}
+tmp = samples_sh_adj %>% 
+  select(one_of(c(sprintf("v%d", 19:27), "chain", "sampleNum"))) %>% 
+  pivot_longer(!c(chain, sampleNum), # into long format
+               names_to = "paramName", 
+               values_to = "sampleValue") %>%
+  mutate(paramName = factor(paramName, levels = sprintf("v%d", 19:27)))
+ggplot(tmp, aes(color = factor(chain))) +
+  geom_density(aes(sampleValue), size = 0.5) +
+  labs(x = "density", y = "sample value", color = "chain",
+      title = "adjust posterior sample value (Shevlin - High)") +
+  facet_wrap(~factor(paramName), scales = "free")
+```
+
+# Plot estimates
+```{r}
+dataAll = read.csv("boxData_mixed_only.csv", header = TRUE)
+v = sort(unique(c(unique(dataAll$ValL), unique(dataAll$ValR))))
+v_r = setNames(v, 1:27)
+
+tmp = samples_sh_adj %>% 
+  select(one_of(sprintf("v%d", 1:27))) %>% 
+  pivot_longer(everything(), 
+               names_to = "tmpName", values_to = "sampleValue") %>%
+  mutate(tmpX = as.numeric(substr(tmpName, 2, nchar(tmpName)))) %>%
+  group_by(tmpX) %>% 
+  summarise(hdi_low = HDIofMCMC(sampleValue)[1],
+            hdi_high = HDIofMCMC(sampleValue)[2],
+            sampleMean = mean(sampleValue)) %>% 
+  mutate(x_obs = recode(tmpX, !!!v_r), 
+         refV = case_when(tmpX < 10 ~ 0, 
+                          9<tmpX & tmpX < 19 ~ 3, 
+                          tmpX > 18 ~ 6), 
+         sampleMean = sampleMean + refV, 
+         hdi_low = hdi_low + refV, 
+         hdi_high = hdi_high + refV)
+```
+
+```{r}
+ggplot(tmp, aes(x = x_obs)) + 
+  geom_linerange(aes(ymin=hdi_low,ymax=hdi_high))  +
+  geom_point(aes(y = sampleMean), size = 2) + 
+  labs(x = "value (objective)", y = "value (estimated from ddm)", 
+       title = "Shevlin") + 
+  theme(text = element_text(size = 15))
+```
+
+
+```{r}
+summarize_posterior2 = function(data) {
+  tmp = data %>% 
+    select(a, t) %>% 
+    pivot_longer(everything(), 
+                 names_to = "paramName", values_to = "sampleValue") %>%
+    group_by(paramName) %>% 
+    summarise(hdi_low = HDIofMCMC(sampleValue)[1],
+              hdi_high = HDIofMCMC(sampleValue)[2],
+              sampleMean = mean(sampleValue))
+  return(tmp)
+}
+
+
+tmp = samples_sh_adj %>% 
+  select(one_of(sprintf("v%d", 1:27))) %>% 
+  pivot_longer(everything(), 
+               names_to = "tmpName", values_to = "sampleValue") %>%
+  mutate(x_obs = as.numeric(substr(tmpName, 2, nchar(tmpName)))) %>%
+  group_by(x_obs) %>% 
+  summarise(hdi_low = HDIofMCMC(sampleValue)[1],
+            hdi_high = HDIofMCMC(sampleValue)[2],
+            sampleMean = mean(sampleValue)) %>% 
+  relocate(x_obs, .after = last_col()) %>%
+  mutate(x_obs2 = recode(x_obs, !!!v_r))
+
+tmp2 = summarize_posterior2(samples_sh)
+
+summary_sh = 
+  data.frame(type = "Shevlin", 
+             rbind(data.frame(tmp2, x_obs = NA, x_obs2 = NA), 
+                   data.frame(paramName = "v", tmp)))
+save(summary_sh, file = "summary_sh.RData")
+```
+

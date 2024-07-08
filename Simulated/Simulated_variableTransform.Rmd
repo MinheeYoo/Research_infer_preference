@@ -1,0 +1,249 @@
+---
+title: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list=ls()) 
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(posterior)
+
+theme_set(theme_classic() + theme(text = element_text(size = 13)))
+```
+
+
+```{r}
+source("plot_hddm_samples.R")
+```
+
+```{r}
+adjust_sample = function(data) {
+  tmp = data %>% 
+  select(!c(X, a, t)) %>% 
+  pivot_longer(!c(chain, sampleNum), 
+               names_to = "paramName", 
+               names_prefix = "v_x",
+               values_to = "sampleValue") %>%
+  group_by(sampleNum) %>% 
+  mutate(minOption = paramName[which.min(sampleValue)],
+         minValue = min(sampleValue),
+         adjValue = sampleValue - minValue) %>%
+  pivot_wider(!c(sampleValue, minValue), 
+              names_from = paramName, 
+              names_prefix = "v",
+              values_from  = adjValue) %>%
+  ungroup() 
+  return(tmp)
+}
+```
+
+
+# Linear 2
+```{r}
+nChain = 4
+nSample = 6000
+samples_linear2 = read.csv(paste("Linear", "Simulated_linear2_samples.csv", sep = "/"))
+samples_linear2$chain = rep(1:nChain, each = nSample)
+samples_linear2$sampleNum = samples_linear2$X+1
+```
+
+```{r}
+samples_linear2_adj = adjust_sample(samples_linear2)
+unique(samples_linear2_adj$minOption)
+```
+
+
+```{r}
+# check R hat of adjust value 
+chain_summary_linear2 = summarise_draws(
+  samples_linear2_adj %>%  
+    group_by(chain) %>% 
+    mutate(`.iteration` = 1:n()) %>%
+    rename(`.draw` = sampleNum, 
+           `.chain` = chain) %>% select(!c(minOption)))
+any(chain_summary_linear2$rhat[!is.na(chain_summary_linear2$rhat)] > 1.01)
+```
+
+```{r}
+tmp = samples_linear2_adj %>% 
+  select(one_of(c(sprintf("v%d", 1:10), "chain", "sampleNum"))) %>% 
+  pivot_longer(!c(chain, sampleNum), # into long format
+               names_to = "paramName", 
+               values_to = "sampleValue") %>%
+  mutate(paramName = factor(paramName, levels = sprintf("v%d", 1:10)))
+ggplot(tmp, aes(color = factor(chain))) +
+  geom_density(aes(sampleValue), size = 0.5) +
+  labs(x = "density", y = "sample value", color = "chain",
+      title = "adjust posterior sample value (linear2)") +
+  facet_wrap(~factor(paramName), scales = "free")
+```
+
+
+
+# Squared 2
+```{r}
+nChain = 4
+nSample = 6000
+samples_squared2 = read.csv(paste("Squared", "Simulated_squared2_samples.csv", sep = "/"))
+samples_squared2$chain = rep(1:nChain, each = nSample)
+samples_squared2$sampleNum = samples_squared2$X+1
+```
+
+```{r}
+samples_squared2_adj = adjust_sample(samples_squared2)
+unique(samples_squared2_adj$minOption)
+samples_squared2_adj %>% group_by(minOption) %>% summarise(n = n())
+```
+
+```{r}
+# check R hat of adjust value 
+chain_summary_squared2 = summarise_draws(
+  samples_squared2_adj %>%  
+    group_by(chain) %>% 
+    mutate(`.iteration` = 1:n()) %>%
+    rename(`.draw` = sampleNum, 
+           `.chain` = chain) %>% select(!c(minOption)))
+any(chain_summary_squared2$rhat[!is.na(chain_summary_squared2$rhat)] > 1.01)
+```
+
+```{r}
+tmp = samples_squared2_adj %>% 
+  select(one_of(c(sprintf("v%d", 1:10), "chain", "sampleNum"))) %>% 
+  pivot_longer(!c(chain, sampleNum), # into long format
+               names_to = "paramName", 
+               values_to = "sampleValue") %>%
+  mutate(paramName = factor(paramName, levels = sprintf("v%d", 1:10)))
+ggplot(tmp, aes(color = factor(chain))) +
+  geom_density(aes(sampleValue), size = 0.5) +
+  labs(x = "density", y = "sample value", color = "chain",
+      title = "adjust posterior sample value (squared2)") +
+  facet_wrap(~factor(paramName), scales = "free")
+```
+
+# Sqrt 2 
+```{r}
+nChain = 4
+nSample = 6000
+samples_sqrt2 = read.csv(paste("Sqrt", "Simulated_sqrt2_samples.csv", sep = "/"))
+samples_sqrt2$chain = rep(1:nChain, each = nSample)
+samples_sqrt2$sampleNum = samples_sqrt2$X+1
+```
+
+```{r}
+samples_sqrt2_adj = adjust_sample(samples_sqrt2)
+unique(samples_sqrt2_adj$minOption)
+```
+
+```{r}
+# check R hat of adjust value 
+chain_summary_sqrt2 = summarise_draws(
+  samples_sqrt2_adj %>%  
+    group_by(chain) %>% 
+    mutate(`.iteration` = 1:n()) %>%
+    rename(`.draw` = sampleNum, 
+           `.chain` = chain) %>% select(!c(minOption)))
+any(chain_summary_sqrt2$rhat[!is.na(chain_summary_sqrt2$rhat)] > 1.01)
+```
+
+```{r}
+tmp = samples_sqrt2_adj %>% 
+  select(one_of(c(sprintf("v%d", 1:10), "chain", "sampleNum"))) %>% 
+  pivot_longer(!c(chain, sampleNum), # into long format
+               names_to = "paramName", 
+               values_to = "sampleValue") %>%
+  mutate(paramName = factor(paramName, levels = sprintf("v%d", 1:10)))
+ggplot(tmp, aes(color = factor(chain))) +
+  geom_density(aes(sampleValue), size = 0.5) +
+  labs(x = "density", y = "sample value", color = "chain",
+      title = "adjust posterior sample value (sqrt2)") +
+  facet_wrap(~factor(paramName), scales = "free")
+```
+
+# Plot estimates
+```{r}
+summarize_posterior = function(data) {
+  tmp = data %>% 
+    select(one_of(sprintf("v%d", 1:10))) %>% 
+    pivot_longer(everything(), 
+                 names_to = "tmpName", values_to = "sampleValue") %>%
+    mutate(x_obs = as.numeric(substr(tmpName, 2, nchar(tmpName))))
+  
+  tmp2 = tmp %>% group_by(x_obs) %>% 
+    summarise(hdi_low = HDIofMCMC(sampleValue)[1],
+              hdi_high = HDIofMCMC(sampleValue)[2],
+              sampleMean = mean(sampleValue))
+  
+  return(tmp2)
+}
+```
+
+```{r, fig.width = 6, fig.height = 3}
+summary_data = rbind(data.frame(type = "linear", v = 1, 
+                                summarize_posterior(samples_linear_adj)),
+                     data.frame(type = "linear", v = 2, 
+                                summarize_posterior(samples_linear2_adj)),
+                     data.frame(type = "squared", v = 1,
+                                summarize_posterior(samples_squared_adj)),
+                     data.frame(type = "squared", v = 2,
+                                summarize_posterior(samples_squared2_adj)),
+                     data.frame(type = "sqrt", v = 1,
+                                summarize_posterior(samples_sqrt_adj)), 
+                     data.frame(type = "sqrt", v = 2,
+                                summarize_posterior(samples_sqrt2_adj)))
+
+
+ggplot(summary_data, aes(x = x_obs)) + 
+  geom_linerange(aes(ymin=hdi_low,ymax=hdi_high))  +
+  geom_point(aes(y = sampleMean), size = 2) + 
+  scale_x_continuous(breaks = 1:10) + 
+  facet_grid(v~type) +
+  labs(x = "value (used to simulate)", y = "value (estimated from ddm)", 
+       title = "Simulated data") + 
+  theme(text = element_text(size = 15))
+
+ggplot(summary_data, aes(x = x_obs, color =factor(v))) + 
+  geom_linerange(aes(ymin=hdi_low,ymax=hdi_high))  +
+  geom_point(aes(y = sampleMean), size = 2) + 
+  scale_x_continuous(breaks = 1:10) + 
+  facet_grid(~type) +
+  labs(x = "value (used to simulate)", y = "value (estimated from ddm)", 
+       title = "Simulated data", color = "dataset") + 
+  theme(text = element_text(size = 15))
+```
+
+
+
+```{r}
+summarize_posterior2 = function(data) {
+  tmp = data %>% 
+    select(a, t) %>% 
+    pivot_longer(everything(), 
+                 names_to = "paramName", values_to = "sampleValue") %>%
+    group_by(paramName) %>% 
+    summarise(hdi_low = HDIofMCMC(sampleValue)[1],
+              hdi_high = HDIofMCMC(sampleValue)[2],
+              sampleMean = mean(sampleValue))
+  return(tmp)
+}
+summarize_posterior_all = function(samples, adjSamples, dataName) {
+  tmp = data.frame(type = dataName, 
+                   rbind(data.frame(summarize_posterior2(samples), 
+                                    x_obs = NA), 
+                         data.frame(paramName = "v",
+                                    summarize_posterior(adjSamples) %>% 
+                                      relocate(x_obs, .after = last_col()))))
+  return(tmp)
+}
+
+summary_sim = rbind(summarize_posterior_all(samples_linear, samples_linear_adj, "linear1"),
+                    summarize_posterior_all(samples_linear2, samples_linear2_adj, "linear2"), 
+                    summarize_posterior_all(samples_squared, samples_squared_adj, "squared1"), 
+                    summarize_posterior_all(samples_squared2, samples_squared2_adj, "squared2"), 
+                    summarize_posterior_all(samples_sqrt, samples_sqrt_adj, "sqrt1"), 
+                    summarize_posterior_all(samples_sqrt2, samples_sqrt2_adj, "sqrt2"))
+save(summary_sim, file = "summary_sim.RData")
+```
+
